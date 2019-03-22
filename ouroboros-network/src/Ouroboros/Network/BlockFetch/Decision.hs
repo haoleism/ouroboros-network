@@ -43,7 +43,7 @@ data FetchDecisionPolicy header block = FetchDecisionPolicy {
        maxConcurrentFetchPeers :: Word,
        maxInFlightReqsPerPeer  :: Word,  -- A protocol constant.
 
-       plausibleCandidateChain :: ChainFragment block
+       plausibleCandidateChain :: ChainFragment header
                                -> ChainFragment header -> Bool,
 
        compareCandidateChains  :: ChainFragment header
@@ -65,7 +65,7 @@ fetchDecisions :: (HasHeader header, HasHeader block,
                    HeaderHash header ~ HeaderHash block,
                    TimeMeasure time)
                => FetchDecisionPolicy header block
-               -> ChainFragment block
+               -> ChainFragment header
                -> (Point block -> Bool)
                -> [(ChainFragment header, PeerInfo header time extra)]
                -> [(FetchDecision header, PeerInfo header time extra)]
@@ -184,9 +184,9 @@ current chain. So our first task is to filter down to this set.
 -- length (typically the length of the current adopted chain).
 --
 filterLongerCandidateChains :: HasHeader header
-                            => (ChainFragment block ->
+                            => (ChainFragment header ->
                                 ChainFragment header -> Bool)
-                            -> ChainFragment block
+                            -> ChainFragment header
                             -> [(ChainFragment header, peerinfo)]
                             -> [(ChainFragment header, peerinfo)]
 filterLongerCandidateChains plausibleCandidateChain currentChain =
@@ -280,9 +280,8 @@ interested in this candidate at all.
 -- | Find the fork suffix range for a candidate chain, with respect to the
 -- current chain.
 --
-chainForkSuffix :: (HasHeader header, HasHeader block,
-                    HeaderHash header ~ HeaderHash block)
-                => ChainFragment block  -- ^ Current chain.
+chainForkSuffix :: HasHeader header
+                => ChainFragment header -- ^ Current chain.
                 -> ChainFragment header -- ^ Candidate chain
                 -> Maybe (ChainFragment header)
 chainForkSuffix current candidate =
@@ -290,9 +289,8 @@ chainForkSuffix current candidate =
       Nothing                         -> Nothing
       Just (_, _, _, candidateSuffix) -> Just candidateSuffix
 
-chainsForkSuffix :: (HasHeader header, HasHeader block,
-                     HeaderHash header ~ HeaderHash block)
-                 => ChainFragment block
+chainsForkSuffix :: HasHeader header
+                 => ChainFragment header -- ^ Current chain.
                  -> [(ChainFragment header, peerinfo)]
                  -> [(ChainFragment header, peerinfo)]
 chainsForkSuffix current chains =

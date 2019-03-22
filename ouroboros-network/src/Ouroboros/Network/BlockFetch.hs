@@ -123,7 +123,7 @@ data BlockFetchConsensusInterface peer header block m =
        -- This must contain info on the last @K@ blocks (unless we're near
        -- the chain genesis of course).
        --
-       readCurrentChain       :: STM m (ChainFragment block),
+       readCurrentChain       :: STM m (ChainFragment header),
 
        -- | Recent, only within last K
        readFetchedBlocks      :: STM m (Point block -> Bool),
@@ -139,7 +139,7 @@ data BlockFetchConsensusInterface peer header block m =
        -- with operational key certificates there are also cases where
        -- we would consider a chain of equal length to the current chain.
        --
-       plausibleCandidateChain :: ChainFragment block
+       plausibleCandidateChain :: ChainFragment header
                                -> ChainFragment header -> Bool,
 
        -- | Compare two candidate chains and return a preference ordering.

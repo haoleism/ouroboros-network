@@ -72,6 +72,10 @@ module Ouroboros.Network.ChainFragment (
   isPrefixOf,
   joinChainFragments,
 
+  -- * Conversion to/from Chain
+  toChain,
+  fromChain,
+
   -- * Helper functions
   prettyPrintChainFragment,
 
@@ -95,9 +99,10 @@ import           Codec.CBOR.Encoding (encodeListLen)
 import           Codec.CBOR.Decoding (decodeListLen)
 
 import           Ouroboros.Network.Block
-import           Ouroboros.Network.Chain (ChainUpdate (..), Point (..),
+import           Ouroboros.Network.Chain (Chain, ChainUpdate (..), Point (..),
                      blockPoint, castPoint, genesisBlockNo, genesisPoint,
                      genesisSlotNo)
+import qualified Ouroboros.Network.Chain as Chain
 
 --
 -- Blockchain fragment data type.
@@ -719,6 +724,15 @@ joinChainFragments c1@(ChainFragment t1) c2@(ChainFragment t2) =
       (_ FT.:> b1, b2 FT.:< _) | b2 `isValidSuccessorOf` b1
                                -> Just (ChainFragment (t1 FT.>< t2))
       _                        -> Nothing
+
+-- | Convert a 'ChainFragment' to a 'Chain'.
+toChain :: HasHeader block => ChainFragment block -> Chain block
+toChain = Chain.fromNewestFirst . toNewestFirst
+
+-- | Convert a 'Chain' to a 'ChainFragment'.
+fromChain :: HasHeader block => Chain block -> ChainFragment block
+fromChain = fromNewestFirst . Chain.toNewestFirst
+
 
 --
 -- Serialisation

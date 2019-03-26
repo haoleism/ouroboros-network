@@ -22,9 +22,13 @@ module Ouroboros.Network.ChainFragment (
   -- * ChainFragment construction and inspection
   -- ** Head inspection
   headPoint,
+  headOrGenPoint,
   headSlot,
+  headOrGenSlot,
   headHash,
+  headOrGenHash,
   headBlockNo,
+  headOrGenBlockNo,
 
   -- ** Basic operations
   head,
@@ -85,14 +89,15 @@ import           Data.FingerTree (FingerTree)
 import qualified Data.FingerTree as FT
 import qualified Data.Foldable as Foldable
 import qualified Data.List as L
-import           Data.Maybe (isJust)
+import           Data.Maybe (fromMaybe, isJust)
 import           Codec.Serialise (Serialise (..))
 import           Codec.CBOR.Encoding (encodeListLen)
 import           Codec.CBOR.Decoding (decodeListLen)
 
 import           Ouroboros.Network.Block
-import           Ouroboros.Network.Chain
-                   ( Point(..), castPoint, blockPoint, ChainUpdate(..) )
+import           Ouroboros.Network.Chain (ChainUpdate (..), Point (..),
+                     blockPoint, castPoint, genesisBlockNo, genesisPoint,
+                     genesisSlotNo)
 
 --
 -- Blockchain fragment data type.
@@ -223,17 +228,37 @@ head Empty    = Nothing
 headPoint :: HasHeader block => ChainFragment block -> Maybe (Point block)
 headPoint = fmap blockPoint . head
 
+-- | \( O(1) \). Variant of 'headPoint' that returns 'genesisPoint' when the
+-- fragment is empty.
+headOrGenPoint :: HasHeader block => ChainFragment block -> Point block
+headOrGenPoint = fromMaybe genesisPoint . headPoint
+
 -- | \( O(1) \).
 headSlot :: HasHeader block => ChainFragment block -> Maybe SlotNo
 headSlot = fmap blockSlot . head
+
+-- | \( O(1) \). Variant of 'headSlot' that returns 'genesisSlotNo' when the
+-- fragment is empty.
+headOrGenSlot :: HasHeader block => ChainFragment block -> SlotNo
+headOrGenSlot = fromMaybe genesisSlotNo . headSlot
 
 -- | \( O(1) \).
 headHash :: HasHeader block => ChainFragment block -> Maybe (ChainHash block)
 headHash = fmap (BlockHash . blockHash) . head
 
+-- | \( O(1) \). Variant of 'headHash' that returns 'GenesisHash' when the
+-- fragment is empty.
+headOrGenHash :: HasHeader block => ChainFragment block -> ChainHash block
+headOrGenHash = fromMaybe GenesisHash . headHash
+
 -- | \( O(1) \).
 headBlockNo :: HasHeader block => ChainFragment block -> Maybe BlockNo
 headBlockNo = fmap blockNo . head
+
+-- | \( O(1) \). Variant of 'headBlockNo' that returns 'genesisBlockNo' when
+-- the fragment is empty.
+headOrGenBlockNo :: HasHeader block => ChainFragment block -> BlockNo
+headOrGenBlockNo = fromMaybe genesisBlockNo . headBlockNo
 
 -- | \( O(1) \).
 last :: HasHeader block => ChainFragment block -> Maybe block

@@ -36,7 +36,7 @@ tests =
   , testProperty "timers (SimM)"           (withMaxSuccess 1000 prop_timers_ST)
   -- fails since we just use `threadDelay` to schedule timers in `IO`.
   , testProperty "timers (IO)"             (expectFailure prop_timers_IO)
-  , testProperty "threadId order (SimM)"   (withMaxSuccess 1000 prop_threadId_order_order_Sim)
+  , testProperty "threadId order (SimM)"   (withMaxSuccess 1000 prop_threadId_order_sim)
   , testProperty "fork order (SimM)"       (withMaxSuccess 1000 prop_fork_order_ST)
   , testProperty "fork order (IO)"         (expectFailure prop_fork_order_IO)
   , testGroup "throw/catch unit tests"
@@ -295,8 +295,8 @@ test_threadId_order = \(Positive n) -> do
     isValid :: Int -> [ThreadId m] -> Property
     isValid n tr = map show tr === map (("ThreadId " ++ ) . show) [1..n]
 
-prop_threadId_order_order_Sim :: Positive Int -> Property
-prop_threadId_order_order_Sim n = runSimOrThrow $ test_threadId_order n
+prop_threadId_order_sim :: Positive Int -> Property
+prop_threadId_order_sim n = runSimOrThrow $ test_threadId_order n
 
 
 --

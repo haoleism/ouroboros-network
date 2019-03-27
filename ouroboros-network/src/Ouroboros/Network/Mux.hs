@@ -82,7 +82,9 @@ muxStart versions mpds bearer style rescb_m = do
         muxBearerSetState bearer Dead
         case r of
           Left e -> do
-            say $ "Mux Bearer died due to " ++ show e
+            case rescb_m of
+                 Nothing -> say $ "Mux Bearer died due to " ++ show e
+                 Just _  -> return ()
             sequence_ $ rescb_m <*> Just (Just e)
           Right _ ->
             sequence_ $ rescb_m <*> Just Nothing
@@ -184,7 +186,7 @@ muxChannel pmss mid md w cnt =
             if blob == BL.empty
                 then retry
                 else writeTVar q BL.empty >> return blob
-        -- say $ printf "recv mid %s mode %s blob len %d" (show mid) (show md) (BL.length blob)
+        --say $ printf "recv mid %s mode %s blob len %d" (show mid) (show md) (BL.length blob)
         if BL.null blob
            then pure Nothing
            else return $ Just blob
@@ -227,13 +229,14 @@ muxClient versions mpds_fn bearer = do
 
 -- | Wait for the connected peer to initiate version negotiation.
 muxServer :: (MonadAsync m, MonadSay m, MonadSTM m, MonadThrow m,
-             Ord ptcl, Enum ptcl, Bounded ptcl, HasCallStack)
+             Ord ptcl, Enum ptcl, Bounded ptcl, Show ptcl, HasCallStack)
           => [SomeVersion]
           -> (SomeVersion -> Maybe (MiniProtocolDescriptions ptcl m))
           -> MuxBearer ptcl m
           -> m (Maybe (MiniProtocolDescriptions ptcl m))
 muxServer localVersions mpds_fn bearer = do
     (req, _) <- Ouroboros.Network.Mux.Types.read bearer
+    --say $ "recv " ++ show (msId req)
     if msId req /= Muxcontrol || msMode req /= ModeInitiator
        then throwM $ MuxError MuxUnknownMiniProtocol "invalid muxInit req id or mode" callStack
        else do
@@ -252,6 +255,7 @@ muxServer localVersions mpds_fn bearer = do
                            let version = maximum matchingVersions
                                msg  = MsgInitRsp version
                            sndSdu msg
+                           --say "new version negotiated"
                            return (mpds_fn version)
 
                 Right (_, MsgInitRsp _) -> throwM $ MuxError MuxControlProtocolError

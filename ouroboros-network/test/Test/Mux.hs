@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns        #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE RankNTypes          #-}
@@ -19,7 +20,9 @@ module Test.Mux (
 
 import           Codec.CBOR.Decoding as CBOR
 import           Codec.CBOR.Encoding as CBOR
+import           Codec.CBOR.Write (toLazyByteString)
 import           Codec.Serialise (Serialise (..))
+import           Control.DeepSeq (force)
 import           Control.Monad
 import qualified Data.Binary.Put as Bin
 import qualified Data.ByteString.Lazy as BL
@@ -37,6 +40,7 @@ import           Control.Monad.Class.MonadSTM
 import           Control.Monad.Class.MonadThrow
 import           Control.Monad.Class.MonadTimer
 import           Control.Monad.IOSim (runSimStrictShutdown)
+import           Network.TypedProtocol.Channel (recv)
 import           Network.TypedProtocol.Driver
 import           Network.TypedProtocol.ReqResp.Client
 import           Network.TypedProtocol.ReqResp.Server
@@ -53,10 +57,8 @@ tests =
   [ testProperty "mux send receive"          prop_mux_snd_recv
   , testProperty "2 miniprotocols"           prop_mux_2_minis
   , testProperty "starvation"                prop_mux_starvation
-  , testProperty "unknown miniprotocol (IO)" prop_mux_unknown_miniprot_io
-  , testProperty "unknow miniprotocol (Sim)" prop_mux_unknown_miniprot_sim
-  , testProperty "too short header (IO)"     prop_mux_short_header_io
-  , testProperty "too short header (Sim)"    prop_mux_short_header_sim
+  , testProperty "invalid sdu (Sim)"         prop_demux_sdu_sim
+  , testProperty "invalid sdu (IO)"          prop_demux_sdu_io
   ]
 
 newtype NetworkMagic = NetworkMagic Word32
@@ -193,9 +195,10 @@ instance Serialise DummyPayload where
     decode = DummyPayload . BL.fromStrict <$> CBOR.decodeBytes
 
 data InvalidSDU = InvalidSDU {
-      isTimestamp :: !Mx.RemoteClockModel
-    , isIdAndMode :: !Word16
-    , isLength    :: !Word16
+      isTimestamp  :: !Mx.RemoteClockModel
+    , isIdAndMode  :: !Word16
+    , isLength     :: !Word16
+    , isRealLength :: !Int64
     }
 
 instance Show InvalidSDU where
@@ -204,14 +207,64 @@ instance Show InvalidSDU where
                     (isIdAndMode a)
                     (isLength a)
 
-instance Arbitrary InvalidSDU where
-    arbitrary = do
-        ts  <- arbitrary
-        mid <- choose (5, 0xffff) -- TxSubmission with 4 is the highest valid mid
-        len <- arbitrary
 
-        return $ InvalidSDU (Mx.RemoteClockModel ts) mid len
+data ArbitrarySDU = ArbitraryInvalidSDU InvalidSDU Mx.MuxBearerState Mx.MuxErrorType
+                 | ArbitraryValidSDU DummyPayload Mx.MuxBearerState (Maybe Mx.MuxErrorType)
+                 deriving Show
 
+instance Arbitrary ArbitrarySDU where
+    arbitrary = oneof [ unknownMiniProtocol
+                      , invalidLenght
+                      , validSdu
+                      , tooLargeSdu
+                      ]
+      where
+        validSdu = do
+            b <- arbitrary
+
+            state <- if BL.length (unDummyPayload b) < 0xffff
+                         then arbitrary
+                         else return Mx.Mature
+            let err_m = if state == Mx.Larval || state == Mx.Connected
+                            then Just Mx.MuxUnknownMiniProtocol
+                            else Nothing
+
+            return $ ArbitraryValidSDU b state err_m
+
+        tooLargeSdu = do
+            l  <- choose (1+defaultMiniProtocolLimit , 10 * defaultMiniProtocolLimit)
+            let b = DummyPayload $ BL.replicate l 0xa
+
+            return $ ArbitraryValidSDU b Mx.Mature (Just Mx.MuxIngressQueueOverRun)
+
+        unknownMiniProtocol = do
+            ts  <- arbitrary
+            mid <- choose (6, 0xffff) -- ClientChainSynWithBlocks with 5 is the highest valid mid
+            len <- arbitrary
+            state <- arbitrary
+
+            return $ ArbitraryInvalidSDU (InvalidSDU (Mx.RemoteClockModel ts) mid len
+                                          (8 + fromIntegral len))
+                                         state
+                                         Mx.MuxUnknownMiniProtocol
+        invalidLenght = do
+            ts  <- arbitrary
+            mid <- arbitrary
+            len <- arbitrary
+            realLen <- choose (0, 7) -- Size of mux header is 8
+            state <- arbitrary
+
+            return $ ArbitraryInvalidSDU (InvalidSDU (Mx.RemoteClockModel ts) mid len realLen)
+                                         state
+                                         Mx.MuxDecodeError
+
+instance Arbitrary Mx.MuxBearerState where
+     arbitrary = elements [ Mx.Larval
+                          , Mx.Connected
+                          , Mx.Mature
+                          , Mx.Dying
+                          , Mx.Dead
+                          ]
 
 data MuxSTMCtx ptcl m = MuxSTMCtx {
       writeQueue :: TBQueue m BL.ByteString
@@ -248,7 +301,8 @@ startMuxSTM versions mpds style wq rq mtu trace = do
 
 queuesAsMuxBearer
   :: forall ptcl m.
-     ( MonadSTM   m
+     ( MonadSay   m
+     , MonadSTM   m
      , MonadTimer m
      , MonadThrow m
      , Mx.ProtocolEnum ptcl
@@ -511,7 +565,9 @@ prop_mux_starvation response0 response1 =
                  flushTBQueue q (a : acc)
 
 encodeInvalidMuxSDU :: InvalidSDU -> BL.ByteString
-encodeInvalidMuxSDU sdu = Bin.runPut enc
+encodeInvalidMuxSDU sdu =
+    let header = Bin.runPut enc in
+    BL.append header $ BL.replicate (fromIntegral $ isLength sdu) 0xa
   where
     enc = do
         Bin.putWord32be $ Mx.unRemoteClockModel $ isTimestamp sdu
@@ -537,78 +593,133 @@ failingServer  = do
 
     return (server_r, said)
 
--- | Send message for an unknown miniprotocol and verify that the correct exception is thrown.
-prop_mux_unknown_miniprot :: forall m.
-                     ( MonadAsync m
-                     , MonadCatch m
-                     , MonadSay m
-                     , MonadST m
-                     , MonadSTM m
-                     , MonadTimer m)
-                  => InvalidSDU
-                  -> m Property
-prop_mux_unknown_miniprot badSdu = do
-    (client_w, said) <- failingServer
+prop_demux_sdu :: forall m.
+                    ( MonadAsync m
+                    , MonadCatch m
+                    , MonadSay m
+                    , MonadST m
+                    , MonadSTM m
+                    , MonadTimer m)
+                 => ArbitrarySDU
+                 -> m Property
+prop_demux_sdu a = do
+    r <- run a
+    return $ tabulate "SDU type" [stateLabel a] $
+             tabulate "SDU Violation " [violationLabel a] r
 
-    atomically $ writeTBQueue client_w (encodeInvalidMuxSDU badSdu)
+  where
+    run (ArbitraryValidSDU sdu state err_m) = do
+        stopVar <- newEmptyTMVarM
+        (client_w, said) <- plainServer stopVar
 
-    res <- wait said
-    case res of
-         Just e  ->
-             case fromException e of
-                  Just me -> return $ Mx.errorType me === Mx.MuxUnknownMiniProtocol
-                  Nothing -> return $ property False
-         Nothing -> return $ property False
+        --say $ "running with length " ++ show (BL.length $ unDummyPayload sdu)
+        setup state client_w
 
-prop_mux_unknown_miniprot_io :: InvalidSDU
-                             -> Property
-prop_mux_unknown_miniprot_io badSdu =
-    ioProperty $ prop_mux_unknown_miniprot badSdu
+        !expected <- writeSdu client_w $ unDummyPayload sdu
 
-prop_mux_unknown_miniprot_sim :: InvalidSDU
-             -> Property
-prop_mux_unknown_miniprot_sim badSdu  =
-    let r_e =  runSimStrictShutdown $ prop_mux_unknown_miniprot badSdu in
+        atomically $ putTMVar stopVar $ force expected
+
+        res <- wait said
+        case res of
+            Just e  ->
+                case fromException e of
+                    Just me -> case err_m of
+                                    Just err -> return $ Mx.errorType me === err
+                                    Nothing  -> return $ property False
+                    Nothing -> return $ property False
+            Nothing -> return $ err_m === Nothing
+
+    run (ArbitraryInvalidSDU badSdu state err) = do
+        (client_w, said) <- failingServer
+
+        setup state client_w
+        atomically $ writeTBQueue client_w $ BL.take (isRealLength badSdu) $ encodeInvalidMuxSDU badSdu
+
+        res <- wait said
+        case res of
+            Just e  ->
+                case fromException e of
+                    Just me -> return $ Mx.errorType me === err
+                    Nothing -> return $ property False
+            Nothing -> return $ property False
+
+    plainServer stopVar = do
+        server_w <- atomically $ newTBQueue 10
+        server_r <- atomically $ newTBQueue $ 10000
+
+        let server_mp = Mx.MiniProtocolDescription Nothing (Just $ serverRsp stopVar)
+
+        let server_mps ChainSync1 = server_mp
+        said <- startMuxSTM [version0] (\_ -> Just server_mps) Mx.StyleServer server_w server_r 1280 Nothing
+
+        return (server_r, said)
+
+    -- Server that expects to receive a specific ByteString.
+    -- Does't send a reply.
+    serverRsp stopVar chan =
+        atomically (takeTMVar stopVar) >>= loop
+      where
+        loop e | e == BL.empty = return ()
+        loop e = do
+            msg_m <- recv chan
+            case msg_m of
+                 Just msg -> do
+                     -- say $ "read msg of length " ++ show (BL.length msg)
+
+                     let e_m = BL.stripPrefix msg e
+                     case e_m of
+                          Just e' -> loop e'
+                          Nothing -> error "recv corruption"
+                 Nothing -> error "eof corruption"
+
+    -- XXX odd interface, it returns its argument is a hack to force all data to be sent
+    -- before serverRsp is awaken.
+    writeSdu _ payload | payload == BL.empty = return BL.empty
+    writeSdu queue payload = do
+        let (!frag, !rest) = BL.splitAt 0xffff payload
+            sdu' = Mx.MuxSDU (Mx.RemoteClockModel 0) (Mx.AppProtocolId ChainSync1) Mx.ModeInitiator
+                            (fromIntegral $ BL.length frag) frag
+            !pkt = Mx.encodeMuxSDU (sdu' :: Mx.MuxSDU TestProtocols1)
+        atomically $! writeTBQueue queue pkt
+        x <- writeSdu queue rest
+        return $! BL.append frag x
+
+    -- Unless we are in Larval or Connected we fake version negotiation before
+    -- we run the test.
+    setup state q | state /= Mx.Larval && state /= Mx.Connected = do
+        let msg = Mx.MsgInitReq [version0]
+            blob = toLazyByteString $ Mx.encodeControlMsg msg
+            pkt = Mx.MuxSDU (Mx.RemoteClockModel 0) Mx.Muxcontrol Mx.ModeInitiator
+                            (fromIntegral $ BL.length blob) blob
+        atomically $ writeTBQueue q $ Mx.encodeMuxSDU (pkt :: Mx.MuxSDU TestProtocols1)
+        return ()
+    setup _ _ = return ()
+
+    stateLabel (ArbitraryInvalidSDU _ state _) = "Invalid " ++ versionLabel state
+    stateLabel (ArbitraryValidSDU _ state _)   = "Valid " ++ versionLabel state
+
+    versionLabel Mx.Larval    = "before version negotiation"
+    versionLabel Mx.Connected = "before version negotiation"
+    versionLabel _            = "after version negotiation"
+
+    violationLabel (ArbitraryValidSDU _ _ err_m) = sduViolation $ err_m
+    violationLabel (ArbitraryInvalidSDU _ _ err) = sduViolation $ Just err
+
+    sduViolation (Just Mx.MuxUnknownMiniProtocol) = "unknown miniprotocol"
+    sduViolation (Just Mx.MuxDecodeError        ) = "decode error"
+    sduViolation (Just Mx.MuxIngressQueueOverRun) = "ingress queue overrun"
+    sduViolation (Just _                        ) = "unknown violation"
+    sduViolation Nothing                          = "none"
+
+prop_demux_sdu_sim :: ArbitrarySDU
+                     -> Property
+prop_demux_sdu_sim badSdu =
+    let r_e =  runSimStrictShutdown $ prop_demux_sdu badSdu in
     case r_e of
          Left  _ -> property False
          Right r -> r
 
-prop_mux_short_header :: forall m.
-                         ( MonadAsync m
-                         , MonadCatch m
-                         , MonadSay m
-                         , MonadST m
-                         , MonadSTM m
-                         , MonadTimer m)
-                      => InvalidSDU
-                      -> Word8
-                      -> m Property
-prop_mux_short_header badSdu shortCutOffArg = do
-    let shortCutOff = fromIntegral $ min shortCutOffArg 7 -- XXX Quickcheck 'Giving up' hack
-    (client_w, said) <- failingServer
-
-    atomically $ writeTBQueue client_w (BL.take shortCutOff $ encodeInvalidMuxSDU badSdu)
-
-    res <- wait said
-    case res of
-         Just e  ->
-             case fromException e of
-                  Just me -> return $ Mx.errorType me === Mx.MuxDecodeError
-                  Nothing -> return $ property False
-         Nothing -> return $ property False
-
-prop_mux_short_header_io :: InvalidSDU
-                         -> Word8
-                         -> Property
-prop_mux_short_header_io badSdu shortCutOffArg=
-    ioProperty $ prop_mux_short_header badSdu shortCutOffArg
-
-prop_mux_short_header_sim :: InvalidSDU
-                          -> Word8
-                          -> Property
-prop_mux_short_header_sim badSdu shortCutOffArg =
-    let r_e =  runSimStrictShutdown $ prop_mux_short_header badSdu shortCutOffArg in
-    case r_e of
-         Left  _ -> property False
-         Right r -> r
+prop_demux_sdu_io :: ArbitrarySDU
+                    -> Property
+prop_demux_sdu_io badSdu = ioProperty $ prop_demux_sdu badSdu
 

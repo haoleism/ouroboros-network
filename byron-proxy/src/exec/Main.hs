@@ -30,7 +30,7 @@ import Cardano.BM.Data.LogItem hiding (LogNamed)
 import qualified Cardano.BM.Data.Severity as BM
 import Cardano.BM.Setup (withTrace)
 import qualified Cardano.BM.Trace as BM (Trace)
-import Cardano.BM.Tracer (Tracer (..))
+import Control.Tracer (Tracer (..))
 
 import qualified Pos.Binary.Class as CSL (decode, encode)
 import Pos.Chain.Block (Block, BlockHeader (..), HeaderHash, genesisBlock0,

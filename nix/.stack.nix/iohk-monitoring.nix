@@ -24,7 +24,7 @@
       "library" = {
         depends = (([
           (hsPkgs.base)
-          (hsPkgs.basic-tracer)
+          (hsPkgs.contra-tracer)
           (hsPkgs.aeson)
           (hsPkgs.array)
           (hsPkgs.async)
@@ -92,7 +92,7 @@
         "tests" = {
           depends = [
             (hsPkgs.base)
-            (hsPkgs.basic-tracer)
+            (hsPkgs.contra-tracer)
             (hsPkgs.iohk-monitoring)
             (hsPkgs.aeson)
             (hsPkgs.array)
@@ -128,8 +128,8 @@
     } // {
     src = (pkgs.lib).mkDefault (pkgs.fetchgit {
       url = "https://github.com/input-output-hk/iohk-monitoring-framework";
-      rev = "321c9425bbf8a5d1e401f6c24ec64942f01c49d8";
-      sha256 = "0c8yh1bzv4i9ia80dzjcm3fqy59f6caplz51b87y4q0kp599l3i9";
+      rev = "b656651fd3c357860d8136598b223b048c195eae";
+      sha256 = "08763nx69b959d14w3ksdyc5267n9gblinkbvw071yg3gnndn712";
       });
     postUnpack = "sourceRoot+=/iohk-monitoring; echo source root reset to \$sourceRoot";
     }

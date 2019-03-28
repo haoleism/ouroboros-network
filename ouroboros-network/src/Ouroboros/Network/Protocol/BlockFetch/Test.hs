@@ -14,7 +14,7 @@ import           Control.Monad.Class.MonadST (MonadST)
 import           Control.Monad.Class.MonadSTM (MonadSTM)
 import           Control.Monad.Class.MonadAsync (MonadAsync)
 import           Control.Monad.Class.MonadThrow (MonadCatch)
-import           Cardano.BM.Tracer (nullTracer)
+import           Control.Tracer (nullTracer)
 
 import           Network.TypedProtocol.Driver
 import           Network.TypedProtocol.Codec
@@ -124,7 +124,7 @@ prop_direct (TestChainAndPoints chain points) =
 
 -- | Run a pipelined block-fetch client with a server, without going via 'Peer'.
 --
--- 
+--
 --
 prop_directPipelined1 :: TestChainAndPoints -> Bool
 prop_directPipelined1 (TestChainAndPoints chain points) =

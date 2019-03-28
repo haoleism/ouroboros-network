@@ -17,7 +17,7 @@ import Control.Monad.Class.MonadFork
 import Control.Monad.Class.MonadST
 import Control.Monad.Class.MonadSTM
 import Control.Monad.Class.MonadThrow
-import Cardano.BM.Tracer (nullTracer)
+import Control.Tracer (nullTracer)
 
 import Control.Monad.IOSim (runSimOrThrow)
 
@@ -68,7 +68,7 @@ testClient
   -> Point Block
   -> ChainSyncExamples.Client Block m ()
 testClient doneVar tip =
-  ChainSyncExamples.Client { 
+  ChainSyncExamples.Client {
       ChainSyncExamples.rollbackward = \point _ ->
         if point == tip
           then do
@@ -127,7 +127,7 @@ propChainSyncConnectST cps =
       chainSyncForkExperiment
         (\ser cli ->
             void $ connect (chainSyncClientPeer cli) (chainSyncServerPeer ser)
-        ) cps 
+        ) cps
 
 propChainSyncConnectIO :: ChainProducerStateForkTest -> Property
 propChainSyncConnectIO cps =
@@ -135,7 +135,7 @@ propChainSyncConnectIO cps =
       chainSyncForkExperiment
         (\ser cli ->
             void $  connect (chainSyncClientPeer cli) (chainSyncServerPeer ser)
-        ) cps 
+        ) cps
 
 instance Arbitrary (AnyMessageAndAgency (ChainSync BlockHeader (Point BlockHeader))) where
   arbitrary = oneof

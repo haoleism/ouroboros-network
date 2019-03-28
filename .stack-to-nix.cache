@@ -88,3 +88,5 @@ https://github.com/input-output-hk/cardano-sl f96f3fe04719bd3b0cedc1bbaf80fa6927
 https://github.com/input-output-hk/cardano-sl f96f3fe04719bd3b0cedc1bbaf80fa6927e937f3 networking 0wq3vqmb9r0g76zdx691gymvk7rdqdqxh5vgrfs8f5wpfwkhcxsi cardano-sl-networking .stack.nix/cardano-sl-networking.nix
 https://github.com/input-output-hk/iohk-monitoring-framework 321c9425bbf8a5d1e401f6c24ec64942f01c49d8 iohk-monitoring 0c8yh1bzv4i9ia80dzjcm3fqy59f6caplz51b87y4q0kp599l3i9 iohk-monitoring .stack.nix/iohk-monitoring.nix
 https://github.com/input-output-hk/iohk-monitoring-framework 321c9425bbf8a5d1e401f6c24ec64942f01c49d8 basic-tracer 0c8yh1bzv4i9ia80dzjcm3fqy59f6caplz51b87y4q0kp599l3i9 basic-tracer .stack.nix/basic-tracer.nix
+https://github.com/input-output-hk/iohk-monitoring-framework b656651fd3c357860d8136598b223b048c195eae iohk-monitoring 08763nx69b959d14w3ksdyc5267n9gblinkbvw071yg3gnndn712 iohk-monitoring .stack.nix/iohk-monitoring.nix
+https://github.com/input-output-hk/iohk-monitoring-framework b656651fd3c357860d8136598b223b048c195eae contra-tracer 08763nx69b959d14w3ksdyc5267n9gblinkbvw071yg3gnndn712 contra-tracer .stack.nix/contra-tracer.nix
